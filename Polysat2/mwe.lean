@@ -27,8 +27,8 @@ def clausesToFormula (toProp : Nat -> Prop ) (clauses : List Clause) : Prop :=
 
 def unitPropagation (clauses : List Clause) : List Clause :=
   if [] ∈ clauses then clauses else
-  clauses.map (fun c => c.filter (fun l => clauses.any (fun c => c.all
-  (fun m => m = (l.1,!l.2)))))
+  clauses.map (fun c => c.filter (fun l => !(clauses.any (fun c => c.all
+  (fun m => m = (l.1,!l.2))))))
 
 --Theorem stating that the `unitPropagation` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `unitPropagation`

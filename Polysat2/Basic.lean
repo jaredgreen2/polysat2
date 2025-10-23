@@ -17,7 +17,6 @@ def Clause := List (Nat × Bool) deriving DecidableEq, Membership
 variable {a : Type}
 variable {toProp : Nat -> Prop}
 
-
 --Check if two clauses are resolvable (have the same set of literals but one with opposite polarity).
  -- If they are resolvable, returns true; otherwise, returns false.
 def isResolvable (c1 c2 : Clause) : Bool :=
@@ -36,17 +35,16 @@ def simplifyClauses (clauses : List Clause) : List Clause :=
     c1.all (fun l => c2.any (fun m => m = l)) &&
     c2.all (fun l => c1.any (fun m => m = l))))
 
-
 -- Generate all resolvents from a list of clauses.
  -- A resolvent is the result of resolving two clauses that have the same set of literals
  -- but one with opposite polarity.
 def generateResolvents (clauses : List Clause) : List Clause :=
-  List.flatten (
+  (List.flatten (
     List.map (fun c1 =>
       (List.filter
-      (fun c2 => c1 == c2 || isResolvable c1 c2) clauses).map
+      (fun c2 => isResolvable c1 c2) clauses).map
       (fun c2 => c1.inter c2)
-      ) clauses)
+      ) clauses)) ∪ clauses
 
 --Resolve a list of clauses by:
 --  1. For any pair of clauses with the same set of literals but one bool negated,
@@ -162,8 +160,8 @@ theorem len1_ne_nil (l : List a) (hm : l.length = 1) : l ≠ [] := by
 --  because the unit clause [(1, true)] causes the negation (1, false) to be removed from the second clause.
 def unitPropagation (clauses : List Clause) : List Clause :=
   if [] ∈ clauses then clauses else
-  clauses.map (fun c => c.filter (fun l => clauses.any (fun c => c.all
-  (fun m => m = (l.1,!l.2)))))
+  clauses.map (fun c => c.filter (fun l => !(clauses.any (fun c => c.all
+  (fun m => m = (l.1,!l.2))))))
 
 --Theorem stating that the `unitPropagation` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `unitPropagation`
@@ -245,7 +243,7 @@ def solvable1h (l : List Clause) (ls : List Nat) : Bool :=
 
 def solvable1 (l : List Clause) : Bool :=
   let ls := literalset l;
-  solvable1h (simplify3 l) ls
+  solvable1h l ls
 
 theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clauseToFormula toProp s ->
   clausesToFormula toProp l)) := by
@@ -260,11 +258,9 @@ theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat ×
   sorry -- Full proof to be implemented
 
 def resolvable2 (c1 c2 : Clause) : Bool :=
-  c1.all₂ (fun l1 l2 => l1.1 = l2.1 -> l1.2 = l2.2 ) c1 &&
-  c2.all₂ (fun l1 l2 => l1.1 = l2.1 -> l1.2 = l2.2 ) c2 &&
   (c1.product c2).any (fun l => l.1.1 = l.2.1 && l.1.2 != l.2.2) &&
   (c1.product c2).all₂ (fun l1 l2  => ((l1.1.1 = l1.2.1) && (l2.1.1 = l2.2.1) &&
-  (l1.1.2 != l1.2.2) && (l2.1.2 != l2.2.2)) -> l1.1.1 = l2.1.1) (c1.product c2)
+  (l1.1.2 != l1.2.2) && (l2.1.2 != l2.2.2)) -> l1 = l2) (c1.product c2)
 
 def resolvable2bit (l : Nat) (c1 c2 : Clause) : Bool :=
   resolvable2 c1 c2 && (c1.all₂ (fun l1 l2 : (Nat × Bool) => l1.1 = l2.1 -> l1.1 = l) c2 )
@@ -272,10 +268,12 @@ def resolvable2bit (l : Nat) (c1 c2 : Clause) : Bool :=
 def resolve2 (l : List Clause) : List Clause :=
   let l' := resolvem l;
   let resolvents := (l'.map (fun c1 =>
-    (l'.filter (fun c2 => resolvable2 c1 c2)).map
-    (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
-    (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2)))))))).flatten ;
-    (resolvents.append l')
+      (l'.filter (fun c2 => resolvable2 c1 c2)).map
+      (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
+                 (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2) ))))
+      )
+    )).flatten ;
+    simplifyClauses (resolvents ∪ l')
 
 def resolve2bit (n : Nat) (ls : List Clause) :=
   let l' := resolvem ls;
@@ -284,7 +282,6 @@ def resolve2bit (n : Nat) (ls : List Clause) :=
     (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
     (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2)))))))).flatten ;
     (resolvents.append l')
-
 
 --  Theorem stating that the `resolve2` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `resolve2`
@@ -403,7 +400,18 @@ def saturate (l : List Clause) : List Clause :=
     negatedClauses ∪ acc) ((literalset l).length ) l)
 
 def solvable3 (l : List Clause) : Bool :=
-  [] ∉ saturate l
+  [] ∉ simplify2 (saturate l)
+
+def saturatebit (l : List Clause) : List Clause :=
+  let ls := literalset l;
+  simplify2 (ls.foldl (fun acc n =>
+     if [] ∈ simplify2 acc
+    then acc
+    else (find3clausesbit n acc) ∪ acc)
+  l)
+
+def solvable3bit (l : List Clause) : Bool :=
+  [] ∉ simplify2 (saturatebit l)
 
 theorem fullresolve2clausesubsaturate2clause (l : List Clause) :
   find2ClausesWithContradiction (fullresolve l) ⊆ find2ClausesWithContradiction (saturate l) :=
@@ -419,18 +427,6 @@ theorem find2clausessubsetemptyinsimplifyimp (l1 l2 : List Clause) :
 find2ClausesWithContradiction l1 ⊆ find2ClausesWithContradiction l2 -> ([] ∈ simplify2 l1 -> [] ∈ simplify2 l2) :=
   by
   sorry
-
-def saturatebit (l : List Clause) : List Clause :=
-  let ls := literalset l;
-  simplify2 (ls.foldl (fun acc n =>
-     if [] ∈ simplify2 acc
-    then acc
-    else (find3clausesbit n acc) ∪ acc)
-  l)
-
-def solvable3bit (l : List Clause) : Bool :=
-  [] ∉ saturatebit l
-
 
 theorem solvable3_equiv_solvable2 (l : List Clause) :
   solvable3 l = solvable2 l := by
