@@ -62,13 +62,16 @@ def literalToFormula (toProp : Nat -> Prop) (lit : Nat × Bool) : Prop :=
 
 --Interpret a clause (list of literals) as a disjunction (OR) of its literals.
 --  An empty clause is interpreted as False (unsatisfiable).
-def clauseToFormula (toProp : Nat -> Prop) (c : Clause) : Prop :=
+def clauseToFormulao (toProp : Nat -> Prop) (c : Clause) : Prop :=
 c.any (fun lit => literalToFormula toProp lit)
+
+def clausetoformulaa (toProp : Nat -> Prop)(c : Clause) : Prop :=
+  c.all (fun lit => literalToFormula toProp lit)
 
 --  Interpret a list of clauses as a conjunction (AND) of the disjunctions represented by each clause.
 --  An empty list of clauses is interpreted as True (trivially satisfiable).
 def clausesToFormula (toProp : Nat -> Prop ) (clauses : List Clause) : Prop :=
-  clauses.all (fun c => clauseToFormula toProp c)
+  clauses.all (fun c => clauseToFormulao toProp c)
 
 theorem filterlength : ∀ f : a -> Bool,∀ l : List a, (List.filter f l ).length + (List.filter (fun x => ! f x) l).length = l.length := by
   intro f l
@@ -142,6 +145,12 @@ theorem pwfiltermemnotmem (R : a -> a -> Prop) (l : List a) (c : a) : c ∈ l ->
 --  to get a new list of clauses (output), then the logical formula represented by both is equivalent.
 --  Specifically, the conjunction of disjunctions represented by the input clauses is logically
 --  equivalent to the conjunction of disjunctions represented by the output clauses.
+-- proof sketch:
+--  for any two resolvable clauses,
+--    if the opposing literal is true, the clause where the literal is false, without it, is the case
+--    if the opposing literal is false, the clause where the literal is true, without it, is the case
+--  in both cases clausetoformulao (c1.inter c2) is the case
+-- then adding the resolvent to the conjunction is equivalent to the original
 theorem resolveClauses_preserves_equivalence (toProp : Nat -> Prop)(clauses : List (Clause)) :
   clausesToFormula toProp clauses ↔ clausesToFormula toProp (resolveClauses clauses) := by
   sorry
@@ -188,6 +197,42 @@ def resolvem (l : List Clause ) : List Clause :=
     | some n => n) --the length of the longest resolvable Clause decreases by at least 1 in each iteration
     l
 
+def resolvable2 (c1 c2 : Clause) : Bool :=
+  let c1d := List.dedup c1
+  let c2d := List.dedup c2
+  ((c1d.product c2d).filter (fun l => l.1.1 = l.2.1 && l.1.2 != l.2.2)).length = 1
+
+def resolvable2bit (l : Nat) (c1 c2 : Clause) : Bool :=
+  resolvable2 c1 c2 && (c1.all₂ (fun l1 l2 : (Nat × Bool) => (l1.1 = l2.1 && l1.2 != l2.2) -> l1.1 = l) c2 )
+
+def resolve2 (l : List Clause) : List Clause :=
+  let l' := resolvem l;
+  let resolvents := (l'.map (fun c1 =>
+      (l'.filter (fun c2 => resolvable2 c1 c2)).map
+      (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
+                 (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2) ))))
+      )
+    )).flatten ;
+    simplifyClauses (resolvents ∪ l')
+
+def resolve2bit (n : Nat) (ls : List Clause) :=
+  let l' := resolvem ls;
+  let resolvents := (l'.map (fun c1 =>
+    (l'.filter (fun c2 => resolvable2bit n c1 c2)).map
+    (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
+    (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2)))))))).flatten ;
+    simplifyClauses (resolvents ∪ l')
+
+--  Theorem stating that the `resolve2` function preserves logical equivalence.
+--  This theorem states that if we have a list of clauses (input) and apply `resolve2`
+--  to get a new list of clauses (output), then the logical formula represented by both is equivalent.
+--  Specifically, the conjunction of disjunctions represented by the input clauses is logically
+--  equivalent to the conjunction of disjunctions represented by the output clauses.
+theorem resolve2_preserves_equivalence (toProp : Nat -> Prop)(clauses : List Clause) :
+  clausesToFormula toProp clauses ↔ clausesToFormula toProp (resolve2 clauses) := by
+  --proof similar to that of resolveclausespreservesequivalence
+  sorry -- Full proof to be implemented
+
 def unitpropm (l : List Clause) : List Clause :=
   Nat.repeat unitPropagation l.length --in the worst case, unitprop occurs with 1 more unit in each iteration
    l
@@ -224,72 +269,39 @@ def simplify3 (l : List Clause) : List Clause :=
 --  1. If the list is empty, it's trivially satisfiable (return true)
 --  2. Simplify the list using resolution and unit propagation
 --  3. If any clause is empty after simplification, the formula is unsatisfiable (return false)
---  4. If there are no unit clauses, the formula is satisfiable (return true)
+--  4. if there is a unit clause containing the literal, skip the literal
 --  5. Otherwise, try both possible assignments (true/false) for the first literal in a unit clause
 --  This implementation avoids requiring a detailed termination proof
-def solvable1h (l : List Clause) (ls : List Nat) : Bool :=
+def solvable1h (l : List Clause) (k : List Clause)(ls : List Nat) : Bool :=
   l = [] ||
-  let l' := simplify2 l
+  let l' := unitpropm (k ++ l)
   match ls with
   | [] => [] ∉ l'
   | a :: as => [] ∉ l' &&
   if (l'.any (fun c => c.all (fun m => m = (a,true)) ||
   c.all (fun m => m = (a,false) )))
   then
-    solvable1h l' as
+    solvable1h l k as
   else
-    solvable1h ([(a,true)] :: l') as || solvable1h ([(a,false)] :: l') as
+    solvable1h ( l) ([(a,true)] :: k) as || solvable1h ( l) ([(a,false)] :: k) as
   termination_by ls.length
 
 def solvable1 (l : List Clause) : Bool :=
   let ls := literalset l;
-  solvable1h l ls
+  solvable1h l [] ls
 
-theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clauseToFormula toProp s ->
+theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clausetoformulaa toProp s ->
   clausesToFormula toProp l)) := by
   -- Proof sketch:
   -- 1. If the list of clauses is empty, it is trivially satisfiable.
   -- 2. If the list contains an empty clause, it is unsatisfiable.
-  -- 3. The function uses unit propagation and resolution to simplify the clauses.
-  -- 4. If a unit clause is found, it assigns a truth value to the variable and continues.
-  -- 5. The function explores both possible assignments (true/false) for each variable.
-  -- 6. If a satisfying assignment is found, it returns true; otherwise, false.
-  -- 7. The equivalence follows from the definition of satisfiability and the operations performed.
-  sorry -- Full proof to be implemented
-
-def resolvable2 (c1 c2 : Clause) : Bool :=
-  (c1.product c2).any (fun l => l.1.1 = l.2.1 && l.1.2 != l.2.2) &&
-  (c1.product c2).all₂ (fun l1 l2  => ((l1.1.1 = l1.2.1) && (l2.1.1 = l2.2.1) &&
-  (l1.1.2 != l1.2.2) && (l2.1.2 != l2.2.2)) -> l1 = l2) (c1.product c2)
-
-def resolvable2bit (l : Nat) (c1 c2 : Clause) : Bool :=
-  resolvable2 c1 c2 && (c1.all₂ (fun l1 l2 : (Nat × Bool) => l1.1 = l2.1 -> l1.1 = l) c2 )
-
-def resolve2 (l : List Clause) : List Clause :=
-  let l' := resolvem l;
-  let resolvents := (l'.map (fun c1 =>
-      (l'.filter (fun c2 => resolvable2 c1 c2)).map
-      (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
-                 (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2) ))))
-      )
-    )).flatten ;
-    simplifyClauses (resolvents ∪ l')
-
-def resolve2bit (n : Nat) (ls : List Clause) :=
-  let l' := resolvem ls;
-  let resolvents := (l'.map (fun c1 =>
-    (l'.filter (fun c2 => resolvable2bit n c1 c2)).map
-    (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
-    (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2)))))))).flatten ;
-    (resolvents.append l')
-
---  Theorem stating that the `resolve2` function preserves logical equivalence.
---  This theorem states that if we have a list of clauses (input) and apply `resolve2`
---  to get a new list of clauses (output), then the logical formula represented by both is equivalent.
---  Specifically, the conjunction of disjunctions represented by the input clauses is logically
---  equivalent to the conjunction of disjunctions represented by the output clauses.
-theorem resolve2_preserves_equivalence (toProp : Nat -> Prop)(clauses : List Clause) :
-  clausesToFormula toProp clauses ↔ clausesToFormula toProp (resolve2 clauses) := by
+  -- 3. have, for any assignment to the literals, if unitpropagation results in an empty clause there is no solution with that assignment
+  -- 4. do induction on the input to solvable1h, k
+  -- 5. in the empty case,
+  -- 6. in the next case, split on the next literal in literalset l
+  -- 7. if all subsequent assignemts are not part of solutions, the current assignment is not a solution
+  -- 8. if the empty assignment is not a solution there are no solutions
+  -- 9. otherwise use the assignment that doesnt result in an empty clause
   sorry -- Full proof to be implemented
 
 def fullresolve (l : List Clause) : List Clause :=
@@ -439,7 +451,7 @@ theorem solvable3_equiv_solvable2 (l : List Clause) :
   sorry -- Full proof to be implemented
 
 theorem solvable3_ex (l : List Clause) :
-  solvable3 l <-> (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clauseToFormula toProp s ->
+  solvable3 l <-> (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clausetoformulaa toProp s ->
   clausesToFormula toProp l)) := by
   -- Proof sketch:
   -- 1. If the list of clauses is empty, it is trivially satisfiable.
