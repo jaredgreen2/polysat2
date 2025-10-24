@@ -207,21 +207,21 @@ def resolvable2bit (l : Nat) (c1 c2 : Clause) : Bool :=
 
 def resolve2 (l : List Clause) : List Clause :=
   let l' := resolvem l;
-  let resolvents := (l'.map (fun c1 =>
+  let resolvents := simplifyClauses (l'.map (fun c1 =>
       (l'.filter (fun c2 => resolvable2 c1 c2)).map
       (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
                  (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2) ))))
       )
     )).flatten ;
-    simplifyClauses (resolvents ∪ l')
+    resolvents ∪ l'
 
 def resolve2bit (n : Nat) (ls : List Clause) :=
   let l' := resolvem ls;
-  let resolvents := (l'.map (fun c1 =>
+  let resolvents := simplifyClauses (l'.map (fun c1 =>
     (l'.filter (fun c2 => resolvable2bit n c1 c2)).map
     (fun c2 => (c1.filter (fun l => !(c2.any (fun m => m = (l.1,!l.2) )))) ∪
     (c2.filter (fun l => !(c1.any (fun m => m = (l.1,!l.2)))))))).flatten ;
-    simplifyClauses (resolvents ∪ l')
+    resolvents ∪ l'
 
 --  Theorem stating that the `resolve2` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `resolve2`
@@ -388,7 +388,7 @@ def find2ClausesWithContradiction (clauses : List Clause) : List Clause :=
   ) twoClauses
 
 theorem find3clausescontradiction_imp (l : List Clause): ∀ c ∈ (find3ClausesWithContradiction l),
- clausesToFormula toProp l -> clauseToFormula toProp c := by
+ clausesToFormula toProp l -> clauseToFormulao toProp c := by
   -- Proof sketch:
   -- 1. For each clause c in the list of clauses, we can find a 3-clause that leads to a contradiction
   -- 2. The negation of this 3-clause is added to the original list of clauses
@@ -398,7 +398,7 @@ theorem find3clausescontradiction_imp (l : List Clause): ∀ c ∈ (find3Clauses
   sorry -- Full proof to be implemented
 
 theorem find2clausescontradiction_imp (l : List Clause): ∀ c ∈ (find2ClausesWithContradiction l),
- clausesToFormula toProp l -> clauseToFormula toProp c := by
+ clausesToFormula toProp l -> clauseToFormulao toProp c := by
   sorry
 
 def find3clausesbit (n : Nat)(clauses : List Clause) : List Clause :=
