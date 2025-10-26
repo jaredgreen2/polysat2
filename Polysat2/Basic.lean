@@ -23,8 +23,7 @@ def isResolvable (c1 c2 : Clause) : Bool :=
   let lits1 := c1.map (·.1)
   let lits2 := c2.map (·.1)
   lits1 ⊆  lits2 && lits2 ⊆ lits1 &&
-  (c1.product c2).all₂ (fun l1 l2 => (l1.1.1 = l1.2.1 && l2.1.1 = l2.2.1  &&
-  l1.1.2 != l1.2.2 && l2.1.2 != l2.2.2)  -> l1.1.1 = l2.1.1) (c1.product c2)
+  (((c1.dedup).product (c2.dedup)).filter (fun l => l.1.1 = l.2.1 && l.1.2 != l.2.2)).length = 1
 
 --Simplify a list of clauses by removing duplicate clauses according to equivalence.
  -- This function uses pairwise filtering to remove clauses that are equivalent to each other.
@@ -139,6 +138,8 @@ theorem pwfiltermemnotmem (R : a -> a -> Prop) (l : List a) (c : a) : c ∈ l ->
   rcases hct' with ⟨ c', hc'l, hc'r⟩
   apply hc'r
   exact hc' c' hc'l
+
+
 
 --Theorem stating that the `resolveClauses` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `resolveClauses`
@@ -290,13 +291,44 @@ def solvable1 (l : List Clause) : Bool :=
   let ls := literalset l;
   solvable1h l [] ls
 
-theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clausetoformulaa toProp s ->
+/--/ Aristotle found this block to be false. Here is a proof of the negation:
+
+theorem solution (l : List Clause): (∃ s : Clause, ∀ c ∈ l, ∃ lit ∈ c, lit ∈ s) <-> (∃ s : Clause, ∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
+  clausesToFormula toProp l) :=
+  by
+  -- Wait, there's a mistake. We can actually prove the opposite.
+  negate_state;
+  -- Proof starts here:
+  use [ [ ] ];
+  -- Show that the empty list of clauses is not satisfiable.
+  right
+  aesop;
+  · contradiction;
+  · -- Since $(a, Bool.true) \in []$, this is a contradiction.
+    cases ‹(a, Bool.true) ∈ []›;
+  · unfold clausetoformulaa clausesToFormula; aesop;
+    unfold clauseToFormulao; aesop;
+    use [ ( 0, Bool.true ), ( 0, Bool.false ) ] ; aesop;
+
+-/
+
+theorem solution (l : List Clause): (∃ s : Clause,(∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
+ ( ∀ c ∈ l, ∃ lit ∈ c, lit ∈ s)) <->
+(∃ s : Clause,(∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
+(∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
+  clausesToFormula toProp l)) :=
+  by
+  sorry
+
+theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)),
+  (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
+  (∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
   clausesToFormula toProp l)) := by
   -- Proof sketch:
   -- 1. If the list of clauses is empty, it is trivially satisfiable.
   -- 2. If the list contains an empty clause, it is unsatisfiable.
   -- 3. have, for any assignment to the literals, if unitpropagation results in an empty clause there is no solution with that assignment
-  -- 4. do induction on the input to solvable1h, k
+  -- 4. do functional induction on solvable1h
   -- 5. in the empty case,
   -- 6. in the next case, split on the next literal in literalset l
   -- 7. if all subsequent assignemts are not part of solutions, the current assignment is not a solution
@@ -307,11 +339,11 @@ theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat ×
 def fullresolve (l : List Clause) : List Clause :=
   let ls := literalset l;
   Nat.repeat (fun acc => let l' := simplify2 acc;
-  if [] ∈ l' then acc else resolve2 acc ) ls.length (simplify3 l)
+  if [] ∈ l' then l' else resolve2 acc ) ls.length (l)
 
 def solvable2 (l : List Clause) : Bool :=
   let ex := fullresolve l;
-   !([] ∈ ex)
+   [] ∉ ex
 
 def fullresolvebit (l : List Clause) : List Clause :=
   let ls := literalset l;
@@ -451,7 +483,7 @@ theorem solvable3_equiv_solvable2 (l : List Clause) :
   sorry -- Full proof to be implemented
 
 theorem solvable3_ex (l : List Clause) :
-  solvable3 l <-> (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (clausetoformulaa toProp s ->
+  solvable3 l <-> (∃ (s : List (Nat × Bool)), (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧ (∀ toProp : Nat -> Prop,clausetoformulaa toProp s ->
   clausesToFormula toProp l)) := by
   -- Proof sketch:
   -- 1. If the list of clauses is empty, it is trivially satisfiable.
