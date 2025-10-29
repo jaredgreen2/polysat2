@@ -11,6 +11,9 @@ import Mathlib.Data.List.Sublists
 open Classical
 --namespace Polysat2
 
+set_option maxHeartbeats 1000000
+set_option maxRecDepth 4000
+
 --A `Clause` is a list of pairs of natural numbers (variable indices) and booleans.
 --  The boolean indicates whether the literal is negated (false) or not (true).
 def Clause := List (Nat × Bool) deriving DecidableEq, Membership
@@ -43,7 +46,7 @@ def generateResolvents (clauses : List Clause) : List Clause :=
       (List.filter
       (fun c2 => isResolvable c1 c2) clauses).map
       (fun c2 => c1.inter c2)
-      ) clauses)) ∪ clauses
+      ) clauses))
 
 --Resolve a list of clauses by:
 --  1. For any pair of clauses with the same set of literals but one bool negated,
@@ -52,7 +55,7 @@ def generateResolvents (clauses : List Clause) : List Clause :=
 --  This implements a form of resolution in propositional logic.
 def resolveClauses (clauses : List Clause) : List Clause :=
   let resolvents := generateResolvents clauses;
-  simplifyClauses resolvents
+  simplifyClauses (resolvents ∪ clauses)
 
 --  Interpret a literal (variable index and polarity) as a logical formula.
 --  If the polarity is true, it's the variable itself; if false, it's the negation.
@@ -139,7 +142,14 @@ theorem pwfiltermemnotmem (R : a -> a -> Prop) (l : List a) (c : a) : c ∈ l ->
   apply hc'r
   exact hc' c' hc'l
 
+theorem union_imp_equiv (l1 l2 : List Clause) : ∀ toProp : Nat -> Prop,(∀ c ∈ l2,clausesToFormula toProp l1 -> clauseToFormulao toProp c) ->
+  (clausesToFormula toProp l1 <-> clausesToFormula toProp (l2 ∪ l1)) :=
+  by
+  unfold clausesToFormula; aesop;
 
+theorem imp_equiv (l1 l2 : List Clause) : ∀ toProp :Nat -> Prop, (∀ c ∈ l2, clausesToFormula toProp l1 -> clauseToFormulao toProp c) ->
+(∀ c ∈ l1, clausesToFormula toProp l2 -> clauseToFormulao toProp c) -> (clausesToFormula toProp l1 <-> clausesToFormula toProp l2) := by
+ sorry
 
 --Theorem stating that the `resolveClauses` function preserves logical equivalence.
 --  This theorem states that if we have a list of clauses (input) and apply `resolveClauses`
@@ -189,7 +199,32 @@ theorem unitPropagation_preserves_equivalence (toProp : Nat -> Prop)(clauses : L
   -- 5. Therefore, removing (p, !b) from a clause preserves the logical meaning of the formula.
   -- 6. By induction on the number of unit propagation steps, we can show that the entire
   --    transformation preserves logical equivalence.
-  sorry -- Full proof to be implemented
+  unfold unitPropagation; aesop (config := { warnOnNonterminal := false });
+   -- Since the original clauses are satisfiable, each clause in the original list is true. When we apply unit propagation, we remove the negation of unit clauses from other clauses. But since the original clauses are true, removing their negations shouldn't make any clause false. Therefore, the resulting clauses after unit propagation should also be true.
+  · have h_unit_propagation : ∀ c ∈ clauses, clauseToFormulao toProp c →
+    clauseToFormulao toProp (List.filter (fun l => !clauses.any (fun c => c.all (fun m => m = (l.1, !l.2)))) c) := by {
+      unfold clauseToFormulao; aesop (config := { warnOnNonterminal := false });
+      · unfold literalToFormula at *; aesop (config := { warnOnNonterminal := false });
+        use w; aesop (config := { warnOnNonterminal := false });
+        -- Since $x$ is a clause and $(w, \text{false})$ is not in $x$, there must be some literal in $x$ that is true.
+        obtain ⟨l, hl⟩ : ∃ l ∈ x, literalToFormula toProp l := by
+          unfold clausesToFormula at a; aesop (config := { warnOnNonterminal := false });
+          unfold clauseToFormulao at a; aesop;
+        use l.1;
+        unfold literalToFormula at hl; aesop;
+      · refine' ⟨ w, Or.inr ⟨ left, _, right ⟩ ⟩ ; aesop (config := { warnOnNonterminal := false });
+        contrapose! a; aesop (config := { warnOnNonterminal := false });
+        unfold clausesToFormula at a_3; aesop (config := { warnOnNonterminal := false });
+        unfold clauseToFormulao at a_3;
+        simp_all only [List.any_eq_true, decide_eq_true_eq, Prod.exists, Bool.exists_bool]
+        specialize a_3 x a_2 ; aesop (config := { warnOnNonterminal := false });
+        specialize a w_1
+        aesop
+    }
+    unfold clausesToFormula at *; aesop;
+  · unfold clausesToFormula at *; aesop (config := { warnOnNonterminal := false });
+    unfold clauseToFormulao at *; aesop (config := { warnOnNonterminal := false });
+    grind +ring
 
 def resolvem (l : List Clause ) : List Clause :=
   let m := (l.map (fun c => c.length)).max?;
@@ -273,9 +308,9 @@ def simplify3 (l : List Clause) : List Clause :=
 --  4. if there is a unit clause containing the literal, skip the literal
 --  5. Otherwise, try both possible assignments (true/false) for the first literal in a unit clause
 --  This implementation avoids requiring a detailed termination proof
-def solvable1h (l : List Clause) (k : List Clause)(ls : List Nat) : Bool :=
+def solvable1h (l : List Clause) (k : List (Nat × Bool) )(ls : List Nat) : Bool :=
   l = [] ||
-  let l' := unitpropm (k ++ l)
+  let l' := unitpropm ((k.map (fun lit => ↑[lit])) ++ l)
   match ls with
   | [] => [] ∉ l'
   | a :: as => [] ∉ l' &&
@@ -284,40 +319,28 @@ def solvable1h (l : List Clause) (k : List Clause)(ls : List Nat) : Bool :=
   then
     solvable1h l k as
   else
-    solvable1h ( l) ([(a,true)] :: k) as || solvable1h ( l) ([(a,false)] :: k) as
+    solvable1h ( l) ((a,true) :: k) as || solvable1h ( l) ((a,false) :: k) as
   termination_by ls.length
 
 def solvable1 (l : List Clause) : Bool :=
   let ls := literalset l;
   solvable1h l [] ls
 
-/--/ Aristotle found this block to be false. Here is a proof of the negation:
-
-theorem solution (l : List Clause): (∃ s : Clause, ∀ c ∈ l, ∃ lit ∈ c, lit ∈ s) <-> (∃ s : Clause, ∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
-  clausesToFormula toProp l) :=
-  by
-  -- Wait, there's a mistake. We can actually prove the opposite.
-  negate_state;
-  -- Proof starts here:
-  use [ [ ] ];
-  -- Show that the empty list of clauses is not satisfiable.
-  right
-  aesop;
-  · contradiction;
-  · -- Since $(a, Bool.true) \in []$, this is a contradiction.
-    cases ‹(a, Bool.true) ∈ []›;
-  · unfold clausetoformulaa clausesToFormula; aesop;
-    unfold clauseToFormulao; aesop;
-    use [ ( 0, Bool.true ), ( 0, Bool.false ) ] ; aesop;
-
--/
-
-theorem solution (l : List Clause): (∃ s : Clause,(∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
- ( ∀ c ∈ l, ∃ lit ∈ c, lit ∈ s)) <->
-(∃ s : Clause,(∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
+theorem solution (l : List Clause): ∀ s : Clause,(∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ->
+ (( ∀ c ∈ l, ∃ lit ∈ c, lit ∈ s) <->
 (∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
   clausesToFormula toProp l)) :=
   by
+  sorry
+
+theorem solvable1h_ex (l : List Clause) (k : List (Nat × Bool))(ls : List Nat) :
+(k.map (fun lit => lit.1) ∪ ls ⊆ literalset l ∧
+literalset l ⊆ k.map (fun lit => lit.1) ∪ ls) ->
+(solvable1h l k (literalset l) <-> (∃ (s : List (Nat × Bool)),
+  k ⊆ s ∧
+  (∀ l1 ∈ s,∀ l2 ∈ s, l1.1 = l2.1 -> l1.2 = l2.2) ∧
+  (∀ toProp : Nat -> Prop, clausetoformulaa toProp s ->
+  clausesToFormula toProp l))) := by
   sorry
 
 theorem solvable1_ex (l : List Clause) : solvable1 l <->  (∃ (s : List (Nat × Bool)),
@@ -362,14 +385,7 @@ def solvable2bit (l : List Clause) : Bool :=
 theorem solvable1_equiv_solvable2 (l : List Clause) :
      solvable1 l = solvable2 l := by
      -- Proof sketch:
-     -- 1. Both functions determine satisfiability of a list of clauses
-     -- 2. solvable1 uses a recursive approach with unit propagation and case splitting
-     -- 3. solvable2 uses repeated application of simplify2 and resolve2
-     -- 4. Both approaches are sound and complete for SAT solving
-     -- 5. For any list of clauses l:
-     --    a. If l is satisfiable, both functions will return true
-     --    b. If l is unsatisfiable, both functions will return false
-     -- 6. Therefore, for all inputs l, solvable1 l = solvable2 l
+     -- 1.
   sorry -- Full proof to be implemented
 
 --Generates all possible 3-clauses from the variables in the input clauses.
@@ -377,15 +393,11 @@ theorem solvable1_equiv_solvable2 (l : List Clause) :
 --  all possible combinations of 3 variables with all possible polarities.
 --  @param clauses The list of input clauses
 --  @return A list of all possible 3-clauses (clauses with exactly 3 literals)
-def generateAll3Clauses (clauses : List Clause) : List Clause :=
+def generateAllClauses (clauses : List Clause) (n : Nat) : List Clause :=
   let vars := literalset clauses;  -- Get all variable indices from the clauses
   let lits := List.product vars [true,false];
-  simplify3 (lits.sublistsLen 3)
+  simplify3 (lits.sublistsLen n)
 
-def gen2clauses (clauses : List Clause) : List Clause :=
-  let vars := literalset clauses;
-  let lits := List.product vars [true,false];
-  simplify3 (lits.sublistsLen 2)
 
 --  Negates a clause by flipping the polarity of each literal.
 --  @param clause The clause to negate
@@ -402,7 +414,7 @@ def negateClause (clause : Clause) : List Clause :=
 -- @param clauses The list of input clauses
 --  @return A list of distinct 3-clauses whose negation contradicts the input clauses
 def find3ClausesWithContradiction (clauses : List Clause) : List Clause :=
-  let threeClauses := generateAll3Clauses clauses
+  let threeClauses := generateAllClauses clauses 3
   List.filter (fun threeClause =>
     let negatedClauses := negateClause threeClause;
     let combinedClauses := negatedClauses ++ clauses;
@@ -411,7 +423,7 @@ def find3ClausesWithContradiction (clauses : List Clause) : List Clause :=
   ) threeClauses
 
 def find2ClausesWithContradiction (clauses : List Clause) : List Clause :=
-  let twoClauses := gen2clauses clauses
+  let twoClauses := generateAllClauses clauses 2
   List.filter (fun twoClause =>
     let negatedClauses := negateClause twoClause;
     let combinedClauses := negatedClauses ++ clauses;
@@ -427,7 +439,7 @@ theorem find3clausescontradiction_imp (l : List Clause): ∀ c ∈ (find3Clauses
   -- 3. If the negation leads to a contradiction, it implies that the original list of clauses is unsatisfiable
   -- 4. Therefore, if the original list of clauses is satisfiable, the negation of the 3-clause must not lead to a contradiction
   -- 5. This establishes the implication between the two formulas
-  sorry -- Full proof to be implemented
+  sorry
 
 theorem find2clausescontradiction_imp (l : List Clause): ∀ c ∈ (find2ClausesWithContradiction l),
  clausesToFormula toProp l -> clauseToFormulao toProp c := by
